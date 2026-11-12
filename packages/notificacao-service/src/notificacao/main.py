@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 from urllib.parse import urlsplit
 
-import httpx
+import httpx2
 from aiobotocore.config import AioConfig
 from aiobotocore.session import get_session
 from comum.circuit_breaker import CircuitBreaker
@@ -52,7 +52,7 @@ def criar_aplicacao(config: Config | None = None) -> FastAPI:
                     config=AioConfig(connect_timeout=2, read_timeout=20, retries={"total_max_attempts": 2}),
                 )
             )
-            http = await pilha.enter_async_context(httpx.AsyncClient(timeout=cfg.push_timeout_ms / 1000))
+            http = await pilha.enter_async_context(httpx2.AsyncClient(timeout=cfg.push_timeout_ms / 1000))
             cb_email = CircuitBreaker(CIRCUIT_BREAKER_DO_CANAL[Canal.EMAIL])
             cb_push = CircuitBreaker(CIRCUIT_BREAKER_DO_CANAL[Canal.PUSH])
             saude.circuit_breakers += [cb_email, cb_push]

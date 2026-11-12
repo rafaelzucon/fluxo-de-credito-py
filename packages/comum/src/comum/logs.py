@@ -42,7 +42,17 @@ def configurar_logs() -> None:
     raiz = logging.getLogger()
     raiz.handlers[:] = [saida]
     raiz.setLevel(nivel)
-    for barulhento in ("aiokafka", "kafka", "botocore", "aiobotocore", "httpx", "httpcore", "uvicorn.access"):
+    for barulhento in (
+        "aiokafka",
+        "kafka",
+        "botocore",
+        "aiobotocore",
+        "httpx",
+        "httpx2",
+        "httpcore",
+        "httpcore2",
+        "uvicorn.access",
+    ):
         logging.getLogger(barulhento).setLevel(max(nivel, logging.WARNING))
     for uvicorn in ("uvicorn", "uvicorn.error"):
         logging.getLogger(uvicorn).handlers.clear()

@@ -3,7 +3,7 @@ from email.message import EmailMessage
 from typing import Any
 
 import aiosmtplib
-import httpx
+import httpx2
 from comum.circuit_breaker import CircuitBreaker
 
 from notificacao.dominio import Canal, DecisaoCredito, mensagem_cliente
@@ -51,7 +51,7 @@ class FalhaProvedorPushError(Exception):
 class EnviadorPush:
     canal = Canal.PUSH
 
-    def __init__(self, url: str, circuit_breaker: CircuitBreaker, http: httpx.AsyncClient) -> None:
+    def __init__(self, url: str, circuit_breaker: CircuitBreaker, http: httpx2.AsyncClient) -> None:
         self._url = url.rstrip("/") + CAMINHO_PUSH
         self._cb = circuit_breaker
         self._http = http

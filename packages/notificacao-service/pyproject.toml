@@ -7,7 +7,7 @@ dependencies = [
     "comum",
     "aiobotocore>=3.10.0",
     "aiosmtplib>=5.1.3",
-    "httpx>=0.28.1",
+    "httpx2>=2.16.0",
 ]
 
 [project.scripts]
