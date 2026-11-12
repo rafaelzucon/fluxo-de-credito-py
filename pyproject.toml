@@ -1,0 +1,49 @@
+[project]
+name = "fluxo-de-credito-py"
+version = "1.0.0"
+description = "Solicitação assíncrona de produto de crédito com resposta por evento (Kafka, SNS, SQS, Oracle)"
+requires-python = ">=3.15"
+readme = "README.md"
+dependencies = []
+
+[tool.uv.workspace]
+members = ["packages/*"]
+
+[tool.uv.sources]
+comum = { workspace = true }
+
+[dependency-groups]
+dev = [
+    "pytest>=9.2.0",
+    "pytest-asyncio>=1.4.1.post1",
+    "ruff>=0.17.4",
+    "mypy>=2.4.1",
+    "types-aiobotocore[sns,sqs]>=3.10.0",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["packages"]
+addopts = "-q --import-mode=importlib"
+
+[tool.ruff]
+line-length = 120
+target-version = "py315"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "ASYNC", "SIM", "RUF", "N"]
+ignore = ["RUF001", "RUF002", "RUF003"]
+
+[tool.ruff.lint.per-file-ignores]
+"packages/*/tests/*" = ["N802"]
+
+[tool.mypy]
+python_version = "3.15"
+strict = true
+files = ["packages/comum/src", "packages/solicitacao-service/src", "packages/notificacao-service/src", "packages/motor-credito-simulador/src"]
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = ["aiokafka.*", "oracledb.*"]
+ignore_missing_imports = true

@@ -1,0 +1,18 @@
+[project]
+name = "motor-credito-simulador"
+version = "1.0.0"
+description = "Simulador do motor de crédito: consome SolicitacaoCriada e publica DecisaoTomada"
+requires-python = ">=3.15"
+dependencies = [
+    "comum",
+]
+
+[build-system]
+requires = ["uv_build>=0.13.7,<0.14"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "motor"
+
+[tool.uv.sources]
+comum = { workspace = true }
