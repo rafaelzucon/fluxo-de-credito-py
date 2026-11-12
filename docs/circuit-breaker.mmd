@@ -1,0 +1,20 @@
+%%{init: {"theme": "dark"}}%%
+stateDiagram-v2
+    direction LR
+    [*] --> FECHADO
+    FECHADO --> ABERTO: taxa de falha ≥ 50%<br/>(mín. 5 chamadas, janela das últimas 10)<br/>(timeout de 5s conta como falha)
+    ABERTO --> MEIO_ABERTO: após 30s<br/>(wait duration)
+    MEIO_ABERTO --> FECHADO: falhas < 50%<br/>nas 3 chamadas de teste
+    MEIO_ABERTO --> ABERTO: falhas ≥ 50%<br/>nos testes
+
+    FECHADO: FECHADO
+    FECHADO: chamadas passam normalmente
+    FECHADO: consumers ativos
+    ABERTO: ABERTO
+    ABERTO: fail fast (CircuitoAbertoError)
+    ABERTO: consumers Kafka pausados
+    ABERTO: consumers SQS parados
+    ABERTO: API usa fallback PENDENTE_PUBLICACAO
+    MEIO_ABERTO: MEIO-ABERTO
+    MEIO_ABERTO: libera 3 chamadas de teste
+    MEIO_ABERTO: consumers Kafka e SQS retomados

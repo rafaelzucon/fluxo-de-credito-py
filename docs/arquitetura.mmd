@@ -1,0 +1,105 @@
+%%{init: {"theme": "dark"}}%%
+flowchart LR
+    classDef app fill:#0D2B45,stroke:#64B5F6,color:#E3F2FD
+    classDef svc fill:#0F3320,stroke:#66BB6A,color:#E8F5E9
+    classDef ext fill:#3E2410,stroke:#FFA726,color:#FFF3E0
+    classDef kafka fill:#2A1236,stroke:#BA68C8,color:#F3E5F5
+    classDef aws fill:#3A2E0A,stroke:#FFB300,color:#FFF8E1
+    classDef db fill:#263238,stroke:#90A4AE,color:#ECEFF1
+    classDef dlq fill:#3B1214,stroke:#EF5350,color:#FFEBEE
+    classDef cb fill:#3A3410,stroke:#FDD835,stroke-width:3px,color:#FFFDE7
+    classDef fb fill:#3A1024,stroke:#F06292,stroke-dasharray:4 3,color:#FCE4EC
+
+    APP["📱 App mobile do cliente"]:::app
+
+    subgraph SOL["Serviço de Solicitações · Python 3.15 + FastAPI"]
+        direction TB
+        API["API REST<br/>POST /solicitacoes"]:::svc
+        CB_KAFKA{{"🛡️ CB kafka-producer"}}:::cb
+        FB_KAFKA["Fallback:<br/>status PENDENTE_PUBLICACAO<br/>+ job de republicação"]:::fb
+        CONS_DEC["Consumer<br/>DecisaoTomada"]:::svc
+        CB_SNS{{"🛡️ CB sns-publisher"}}:::cb
+        FB_SNS["CB aberto:<br/>pausa o consumer Kafka<br/>(sem commit do offset)"]:::fb
+    end
+    DB_SOL[("BD Solicitações<br/>solicitacao + status<br/>chave_idempotencia UNIQUE")]:::db
+
+    subgraph KAFKA["Apache Kafka"]
+        direction TB
+        T_SOL[["solicitacao-criada"]]:::kafka
+        T_SOL_RETRY[["solicitacao-criada-retry"]]:::kafka
+        T_SOL_DLT[["solicitacao-criada-dlt"]]:::dlq
+        T_DEC[["decisao-tomada"]]:::kafka
+        T_DEC_RETRY[["decisao-tomada-retry"]]:::kafka
+        T_DEC_DLT[["decisao-tomada-dlt"]]:::dlq
+    end
+
+    MOTOR["⚙️ Motor de Crédito"]:::ext
+    ELEG[("Fatores de<br/>elegibilidade")]:::ext
+
+    subgraph AWS["AWS"]
+        direction TB
+        SNS{{"SNS<br/>decisao-credito"}}:::aws
+        SQS_EMAIL[/"SQS fila-email"/]:::aws
+        SQS_PUSH[/"SQS fila-push"/]:::aws
+        DLQ_EMAIL[/"DLQ fila-email-dlq"/]:::dlq
+        DLQ_PUSH[/"DLQ fila-push-dlq"/]:::dlq
+    end
+
+    subgraph NOT["Serviço de Notificações · Python 3.15 + FastAPI"]
+        direction TB
+        L_EMAIL["Consumer SQS e-mail (aiobotocore)"]:::svc
+        CB_EMAIL{{"🛡️ CB email-provider"}}:::cb
+        L_PUSH["Consumer SQS push (aiobotocore)"]:::svc
+        CB_PUSH{{"🛡️ CB push-provider"}}:::cb
+        FB_NOT["CB aberto:<br/>para o consumer SQS do canal<br/>+ ChangeMessageVisibility"]:::fb
+    end
+    DB_NOT[("BD Notificações<br/>envio + chave_idempotencia UNIQUE")]:::db
+
+    EMAIL["✉️ Provedor de e-mail"]:::ext
+    PUSH["🔔 Provedor de push"]:::ext
+
+    %% Caminho feliz
+    APP -- "1 · Solicita produto de crédito" --> API
+    API -- "1a · Grava solicitação (PENDENTE)" --> DB_SOL
+    API -. "1b · 202 Accepted: 'em breve você receberá<br/>a resposta por e-mail e no app'" .-> APP
+    API --> CB_KAFKA
+    CB_KAFKA -- "1c · FECHADO: publica SolicitacaoCriada" --> T_SOL
+    CB_KAFKA -. "ABERTO" .-> FB_KAFKA
+    FB_KAFKA -. "republica quando o CB fechar" .-> T_SOL
+
+    T_SOL -- "2 · Consome" --> MOTOR
+    MOTOR -- "2a · Consulta" --> ELEG
+    MOTOR -- "2b · Publica DecisaoTomada" --> T_DEC
+
+    T_DEC -- "3 · Consome" --> CONS_DEC
+    CONS_DEC -- "3a · Chave de idempotência + status<br/>(APROVADA/NEGADA), mesma transação" --> DB_SOL
+    CONS_DEC --> CB_SNS
+    CB_SNS -- "3b · FECHADO: publica decisão" --> SNS
+    CB_SNS -. "ABERTO" .-> FB_SNS
+    FB_SNS -. "retoma em MEIO-ABERTO" .-> CONS_DEC
+    SNS -- "fan-out" --> SQS_EMAIL
+    SNS -- "fan-out" --> SQS_PUSH
+
+    SQS_EMAIL -- "4 · Consome" --> L_EMAIL
+    SQS_PUSH -- "4 · Consome" --> L_PUSH
+    L_EMAIL -- "Chave de idempotência" --> DB_NOT
+    L_PUSH -- "Chave de idempotência" --> DB_NOT
+    L_EMAIL --> CB_EMAIL
+    L_PUSH --> CB_PUSH
+    CB_EMAIL -- "4a · FECHADO: envia e-mail" --> EMAIL
+    CB_PUSH -- "4b · FECHADO: envia push" --> PUSH
+    CB_EMAIL -. "ABERTO" .-> FB_NOT
+    CB_PUSH -. "ABERTO" .-> FB_NOT
+    PUSH -. "Notificação" .-> APP
+
+    %% Falhas Kafka
+    T_SOL -. "falha" .-> T_SOL_RETRY
+    T_SOL_RETRY -. "reprocessa" .-> MOTOR
+    T_SOL_RETRY -. "após 3 tentativas" .-> T_SOL_DLT
+    T_DEC -. "falha" .-> T_DEC_RETRY
+    T_DEC_RETRY -. "reprocessa" .-> CONS_DEC
+    T_DEC_RETRY -. "após 3 tentativas" .-> T_DEC_DLT
+
+    %% Falhas SQS
+    SQS_EMAIL -. "não apagada: reaparece após visibility timeout;<br/>maxReceiveCount = 3" .-> DLQ_EMAIL
+    SQS_PUSH -. "não apagada: reaparece após visibility timeout;<br/>maxReceiveCount = 3" .-> DLQ_PUSH

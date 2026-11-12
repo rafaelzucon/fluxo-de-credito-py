@@ -1,0 +1,147 @@
+name: fluxo-de-credito-py
+
+x-servico-python: &servico-python
+  build: &build
+    context: .
+    args:
+      SKIP_TESTS: "${SKIP_TESTS:-false}"
+  restart: on-failure
+  environment: &aws
+    AWS_ENDPOINT: http://localstack:4566
+    AWS_REGION: us-east-1
+    AWS_ACCESS_KEY_ID: test
+    AWS_SECRET_ACCESS_KEY: test
+
+services:
+  # ---------------------------------------------------------------- infraestrutura
+  oracle:
+    image: gvenzl/oracle-free:23-slim
+    environment:
+      ORACLE_PASSWORD: oracle
+    ports:
+      - "1521:1521"
+    volumes:
+      - ./docker/oracle:/container-entrypoint-initdb.d:ro
+      - oracle-data:/opt/oracle/oradata
+    healthcheck:
+      test: ["CMD", "healthcheck.sh"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+
+  kafka:
+    image: apache/kafka:4.4.0
+    ports:
+      - "29092:29092"
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:29092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,EXTERNAL://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_NUM_PARTITIONS: 3
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 > /dev/null 2>&1"]
+      interval: 10s
+      timeout: 10s
+      retries: 20
+      start_period: 15s
+
+  localstack:
+    # 4.14 é a última versão da edição comunitária que roda sem LOCALSTACK_AUTH_TOKEN.
+    image: localstack/localstack:4.14
+    ports:
+      - "4566:4566"
+    environment:
+      SERVICES: sns,sqs
+      AWS_DEFAULT_REGION: us-east-1
+    volumes:
+      - ./docker/localstack/init-aws.sh:/etc/localstack/init/ready.d/init-aws.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:4566/_localstack/init/ready | grep -q '\"completed\": true'"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+
+  mailpit:
+    image: axllent/mailpit:v1.33.1
+    ports:
+      - "8025:8025"   # UI web dos e-mails enviados
+      - "1025:1025"   # SMTP
+
+  push-provider:
+    image: wiremock/wiremock:3.13.2
+    ports:
+      - "8089:8080"   # admin: http://localhost:8089/__admin/requests
+    volumes:
+      - ./docker/wiremock:/home/wiremock:ro
+
+  # ---------------------------------------------------------------- aplicação (Python 3.15)
+  solicitacao-service:
+    <<: *servico-python
+    build:
+      <<: *build
+      target: solicitacao-service
+    image: fluxo-de-credito-py/solicitacao-service:1.0.0
+    ports:
+      - "8080:8080"
+    environment:
+      <<: *aws
+      DB_CONNECT_STRING: oracle:1521/FREEPDB1
+      DB_USER: solicitacao
+      DB_PASSWORD: solicitacao
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      SNS_TOPICO_DECISAO_ARN: arn:aws:sns:us-east-1:000000000000:decisao-credito
+    depends_on:
+      oracle: { condition: service_healthy }
+      kafka: { condition: service_healthy }
+      localstack: { condition: service_healthy }
+
+  motor-credito-simulador:
+    <<: *servico-python
+    build:
+      <<: *build
+      target: motor-credito-simulador
+    image: fluxo-de-credito-py/motor-credito-simulador:1.0.0
+    ports:
+      - "8082:8082"
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+    depends_on:
+      kafka: { condition: service_healthy }
+
+  notificacao-service:
+    <<: *servico-python
+    build:
+      <<: *build
+      target: notificacao-service
+    image: fluxo-de-credito-py/notificacao-service:1.0.0
+    ports:
+      - "8081:8081"
+    environment:
+      <<: *aws
+      DB_CONNECT_STRING: oracle:1521/FREEPDB1
+      DB_USER: notificacao
+      DB_PASSWORD: notificacao
+      SMTP_HOST: mailpit
+      SMTP_PORT: "1025"
+      PUSH_URL: http://push-provider:8080
+      FILA_EMAIL: fila-email
+      FILA_PUSH: fila-push
+    depends_on:
+      oracle: { condition: service_healthy }
+      localstack: { condition: service_healthy }
+      mailpit: { condition: service_started }
+      push-provider: { condition: service_started }
+
+volumes:
+  oracle-data:

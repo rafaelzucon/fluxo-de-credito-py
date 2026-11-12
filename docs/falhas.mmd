@@ -1,0 +1,65 @@
+%%{init: {"theme": "dark"}}%%
+flowchart TB
+    classDef ok fill:#0F3320,stroke:#66BB6A,color:#E8F5E9
+    classDef warn fill:#3A2E0A,stroke:#FFB300,color:#FFF8E1
+    classDef err fill:#3B1214,stroke:#EF5350,color:#FFEBEE
+    classDef db fill:#263238,stroke:#90A4AE,color:#ECEFF1
+    classDef cb fill:#3A3410,stroke:#FDD835,stroke-width:3px,color:#FFFDE7
+
+    subgraph K["Kafka: circuit breaker + retry + dead letter topic"]
+        direction TB
+        K1[["Tópico principal<br/>solicitacao-criada / decisao-tomada"]]:::ok
+        KCB{"🛡️ CB da dependência<br/>está ABERTO?"}:::cb
+        KP["Pausa o consumer<br/>sem commit do offset<br/>(não consome tentativa)"]:::warn
+        K2{"Processou?"}
+        K3["Commit do offset"]:::ok
+        K4[["Tópico de retry<br/>*-retry"]]:::warn
+        K5{"Tentativas < 3?"}
+        K6[["Dead letter topic<br/>*-dlt"]]:::err
+        K1 --> KCB
+        KCB -- "não" --> K2
+        KCB -- "sim" --> KP
+        KP -- "CB em MEIO-ABERTO:<br/>retoma o consumer" --> KCB
+        K2 -- "sim" --> K3
+        K2 -- "não (erro conta<br/>na taxa de falha do CB)" --> K4
+        K4 --> K5
+        K5 -- "sim: reprocessa" --> KCB
+        K5 -- "não" --> K6
+    end
+
+    subgraph S["SQS: circuit breaker + visibility timeout + DLQ"]
+        direction TB
+        S1[/"fila-email / fila-push"/]:::ok
+        S2["ReceiveMessage<br/>(mensagem fica invisível)"]
+        SCB{"🛡️ CB do provedor<br/>está ABERTO?"}:::cb
+        SP["ChangeMessageVisibility<br/>(≥ tempo em ABERTO)<br/>+ para o consumer SQS"]:::warn
+        S3{"Processou?"}
+        S4["DeleteMessage"]:::ok
+        S5["Não apaga a mensagem<br/>visibility timeout expira<br/>e ela volta a ficar visível"]:::warn
+        S6{"ApproximateReceiveCount<br/>< 3?"}
+        S7[/"DLQ<br/>fila-email-dlq / fila-push-dlq"/]:::err
+        S1 --> S2 --> SCB
+        SCB -- "não" --> S3
+        SCB -- "sim" --> SP
+        SP -- "CB em MEIO-ABERTO:<br/>reinicia o consumer SQS" --> S1
+        S3 -- "sim" --> S4
+        S3 -- "não (erro conta<br/>na taxa de falha do CB)" --> S5 --> S6
+        S6 -- "sim" --> S1
+        S6 -- "não (redrive policy)" --> S7
+    end
+
+    subgraph I["Idempotência + circuit breaker em cada tentativa"]
+        direction TB
+        I1["Mensagem recebida<br/>(original ou retry)"]
+        I0["BEGIN transação"]
+        I2[("INSERT chave_idempotencia<br/>constraint UNIQUE")]:::db
+        I4["Descarta duplicata<br/>e confirma a mensagem"]:::warn
+        ICB{{"🛡️ Chamada externa<br/>protegida pelo CB"}}:::cb
+        I3["COMMIT<br/>(chave persistida)"]:::ok
+        I5["ROLLBACK<br/>(chave liberada para a próxima tentativa)"]:::err
+        I1 --> I0 --> I2
+        I2 -- "violação UNIQUE" --> I4
+        I2 -- "inseriu" --> ICB
+        ICB -- "sucesso" --> I3
+        ICB -- "falha ou CB ABERTO" --> I5
+    end

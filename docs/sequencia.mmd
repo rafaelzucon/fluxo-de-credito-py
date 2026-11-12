@@ -1,0 +1,80 @@
+%%{init: {"theme": "dark"}}%%
+sequenceDiagram
+    autonumber
+    actor C as Cliente
+    participant APP as App mobile
+    participant SOL as Serviço de Solicitações
+    participant CBK as CB kafka-producer
+    participant DBS as BD Solicitações
+    participant K as Kafka
+    participant M as Motor de Crédito
+    participant CBS as CB sns-publisher
+    participant SNS as SNS
+    participant Q as SQS fila-email / fila-push
+    participant NOT as Serviço de Notificações
+    participant DBN as BD Notificações
+    participant CBP as CB email/push-provider
+    participant EP as Provedor de e-mail / push
+
+    C->>APP: Solicita produto de crédito
+    APP->>SOL: POST /solicitacoes
+    SOL->>DBS: INSERT solicitação (status = PENDENTE)
+    SOL->>CBK: publica SolicitacaoCriada
+    alt CB FECHADO / MEIO-ABERTO
+        CBK->>K: send(SolicitacaoCriada)
+    else CB ABERTO (fail fast)
+        CBK-->>SOL: CircuitoAbertoError
+        SOL->>DBS: UPDATE status = PENDENTE_PUBLICACAO
+        Note over SOL,DBS: job agendado republica quando o CB fechar
+    end
+    SOL-->>APP: 202 Accepted + mensagem padrão
+    APP-->>C: "Em breve você receberá a resposta por e-mail e no app"
+
+    K->>M: consome SolicitacaoCriada
+    M->>M: consulta fatores de elegibilidade e decide
+    M->>K: publica DecisaoTomada
+
+    K->>SOL: consome DecisaoTomada
+    rect rgb(38, 50, 56)
+        Note over SOL,DBS: transação única
+        SOL->>DBS: INSERT chave de idempotência (UNIQUE)
+        alt chave duplicada
+            SOL->>SOL: ignora e faz commit do offset
+        else chave nova
+            SOL->>DBS: UPDATE status (APROVADA / NEGADA)
+            SOL->>CBS: publica decisão
+            alt CB FECHADO / MEIO-ABERTO
+                CBS->>SNS: Publish
+                SOL->>K: commit do offset
+            else CB ABERTO (fail fast)
+                CBS-->>SOL: CircuitoAbertoError
+                SOL->>DBS: ROLLBACK (libera a chave)
+                SOL->>K: pausa o consumer, sem commit
+                Note over SOL,K: retoma quando o CB passar a MEIO-ABERTO
+            end
+        end
+    end
+
+    SNS->>Q: fan-out (uma cópia por fila)
+
+    Q->>NOT: recebe mensagem (e-mail e push em paralelo)
+    rect rgb(38, 50, 56)
+        Note over NOT,DBN: transação única
+        NOT->>DBN: INSERT chave de idempotência (UNIQUE)
+        alt chave duplicada
+            NOT->>Q: DeleteMessage (já enviado)
+        else chave nova
+            NOT->>CBP: envia e-mail / push
+            alt CB FECHADO / MEIO-ABERTO
+                CBP->>EP: chamada ao provedor
+                EP-->>C: e-mail + notificação no app
+                NOT->>Q: DeleteMessage
+            else CB ABERTO (fail fast)
+                CBP-->>NOT: CircuitoAbertoError
+                NOT->>DBN: ROLLBACK (libera a chave)
+                NOT->>Q: ChangeMessageVisibility (≥ tempo em ABERTO)
+                NOT->>NOT: para o consumer SQS do canal
+                Note over NOT,Q: reinicia o consumer SQS em MEIO-ABERTO
+            end
+        end
+    end
