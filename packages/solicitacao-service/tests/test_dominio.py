@@ -1,7 +1,6 @@
+from apoio_solicitacao import DADOS
 from comum.testes import INSTANTE, RelogioFake
 from solicitacao.dominio import Decisao, Solicitacao, StatusSolicitacao
-
-from .apoio import DADOS
 
 
 def test_nasce_pendente_com_id_versao_0_e_sem_motivo() -> None:

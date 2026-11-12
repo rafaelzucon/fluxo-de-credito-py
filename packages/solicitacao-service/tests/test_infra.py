@@ -1,14 +1,13 @@
 from decimal import Decimal
 
 import pytest
+from apoio_solicitacao import solicitacao
 from comum.circuit_breaker import EstadoCircuito
 from comum.testes import INSTANTE, ConexaoFake, erro_banco, erro_unique
 from solicitacao.dominio import StatusSolicitacao
 from solicitacao.infra.controle_consumidor import reagir_ao_circuit_breaker
 from solicitacao.infra.idempotencia import RegistroIdempotenciaOracle
 from solicitacao.infra.repositorio import ConflitoDeVersaoError, RepositorioSolicitacaoOracle
-
-from .apoio import solicitacao
 
 
 async def test_registro_devolve_true_para_chave_nova_e_false_quando_a_constraint_unique_e_violada() -> None:

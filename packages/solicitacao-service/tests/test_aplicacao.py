@@ -1,6 +1,14 @@
 import json
 
 import pytest
+from apoio_solicitacao import (
+    DADOS,
+    PublicadorDecisaoFake,
+    PublicadorSolicitacaoFake,
+    RepositorioMemoria,
+    abrir,
+    solicitacao,
+)
 from comum.circuit_breaker import CircuitBreaker, CircuitoAbertoError
 from comum.erros import MensagemInvalidaError
 from comum.testes import INSTANTE, BancoFake, ConexaoFake, erro_unique
@@ -9,8 +17,6 @@ from solicitacao.aplicacao.republicador import RepublicadorSolicitacoesPendentes
 from solicitacao.aplicacao.solicitacao_service import SolicitacaoService
 from solicitacao.dominio import Decisao, SolicitacaoNaoEncontradaError, StatusSolicitacao
 from solicitacao.infra.idempotencia import RegistroIdempotenciaOracle
-
-from .apoio import DADOS, PublicadorDecisaoFake, PublicadorSolicitacaoFake, RepositorioMemoria, abrir, solicitacao
 
 DECISAO = json.dumps(
     {

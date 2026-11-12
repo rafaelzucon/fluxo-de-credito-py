@@ -27,6 +27,7 @@ asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 testpaths = ["packages"]
 addopts = "-q --import-mode=importlib"
+pythonpath = ["packages/solicitacao-service/tests", "packages/notificacao-service/tests"]
 
 [tool.ruff]
 line-length = 120

@@ -1,13 +1,12 @@
 from typing import Any
 
 import pytest
+from apoio_solicitacao import PublicadorSolicitacaoFake, RepositorioMemoria
 from comum.testes import BancoFake
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from solicitacao.api import BASE, MENSAGEM_PADRAO, registrar_rotas
 from solicitacao.aplicacao.solicitacao_service import SolicitacaoService
-
-from .apoio import PublicadorSolicitacaoFake, RepositorioMemoria
 
 CORPO = {
     "clienteId": "cliente-123",

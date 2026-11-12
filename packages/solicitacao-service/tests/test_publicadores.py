@@ -1,12 +1,11 @@
 import json
 from typing import Any
 
+from apoio_solicitacao import solicitacao
 from comum.circuit_breaker import CircuitBreaker
 from comum.testes import PublicadorKafkaFake
 from solicitacao.eventos import DecisaoCredito, DecisaoTomada, SolicitacaoCriada
 from solicitacao.infra.publicadores import PublicadorDecisaoSns, PublicadorSolicitacaoCriadaKafka
-
-from .apoio import solicitacao
 
 
 async def test_publica_solicitacao_criada_em_camel_case_com_a_chave_igual_ao_id() -> None:
